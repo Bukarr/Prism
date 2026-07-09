@@ -1,0 +1,6 @@
+{
+  "name": "Prism",
+  "description": "Prism is an AI-powered IDE featuring real-time execution trace debugging, step-by-step causal inquiry, visual program state scrubbers, and peer collaboration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
