@@ -32,6 +32,8 @@ interface TraceInspectorPanelProps {
   onSelectStepIndex: (index: number) => void;
   onTriggerGroundedAIExplanation: (question: string, trace: ExecutionTrace, step: number, diff?: TraceDiffResult | null) => void;
   isAIAnswering: boolean;
+  isExpanded?: boolean;
+  onToggleExpanded?: () => void;
 }
 
 export default function TraceInspectorPanel({
@@ -43,7 +45,9 @@ export default function TraceInspectorPanel({
   activeStepIndex,
   onSelectStepIndex,
   onTriggerGroundedAIExplanation,
-  isAIAnswering
+  isAIAnswering,
+  isExpanded = false,
+  onToggleExpanded
 }: TraceInspectorPanelProps) {
   const [payloadA, setPayloadA] = useState('{"name": "Alice", "age": null}');
   const [payloadB, setPayloadB] = useState('{"name": "Bob", "age": 25}');
@@ -51,6 +55,17 @@ export default function TraceInspectorPanel({
   const [isTraceRunning, setIsTraceRunning] = useState(false);
   const [customQuestion, setCustomQuestion] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
+
+  // States for loop diagnostics & warning confirmation
+  const [pendingTraceA, setPendingTraceA] = useState<ExecutionTrace | null>(null);
+  const [pendingTraceB, setPendingTraceB] = useState<ExecutionTrace | null>(null);
+  const [showLoopWarning, setShowLoopWarning] = useState(false);
+  const [warningDetails, setWarningDetails] = useState<{
+    type: 'loop_threshold_exceeded';
+    message: string;
+    threshold: number;
+    actualCount: number;
+  } | null>(null);
 
   // Synchronize payload defaults if the user opens Python or JS
   useEffect(() => {
@@ -83,6 +98,48 @@ export default function TraceInspectorPanel({
     return () => clearInterval(interval);
   }, [isPlaying, currentTrace, activeStepIndex, onSelectStepIndex]);
 
+  const handleConfirmTruncate = () => {
+    if (pendingTraceA) {
+      const truncatedA: ExecutionTrace = {
+        ...pendingTraceA,
+        events: pendingTraceA.events.slice(0, 100),
+        stdout: [...pendingTraceA.stdout, "[TRACER INFO] Execution trace truncated to 100 steps to prevent memory saturation."]
+      };
+      onTraceUpdated(truncatedA);
+    }
+    if (pendingTraceB) {
+      const truncatedB: ExecutionTrace = {
+        ...pendingTraceB,
+        events: pendingTraceB.events.slice(0, 100),
+        stdout: [...pendingTraceB.stdout, "[TRACER INFO] Execution trace truncated to 100 steps to prevent memory saturation."]
+      };
+      onComparisonTraceUpdated(truncatedB);
+    } else {
+      onComparisonTraceUpdated(null);
+    }
+    
+    onSelectStepIndex(1);
+    setShowLoopWarning(false);
+    setPendingTraceA(null);
+    setPendingTraceB(null);
+  };
+
+  const handleConfirmContinue = () => {
+    if (pendingTraceA) {
+      onTraceUpdated(pendingTraceA);
+    }
+    if (pendingTraceB) {
+      onComparisonTraceUpdated(pendingTraceB);
+    } else {
+      onComparisonTraceUpdated(null);
+    }
+    
+    onSelectStepIndex(1);
+    setShowLoopWarning(false);
+    setPendingTraceA(null);
+    setPendingTraceB(null);
+  };
+
   if (!activeFile) {
     return (
       <div className="h-full flex flex-col items-center justify-center bg-slate-950 p-6 text-slate-500 font-sans border-l border-slate-900">
@@ -102,16 +159,25 @@ export default function TraceInspectorPanel({
     setTimeout(() => {
       // Generate standard trace A
       const traceA = generateExecutionTrace(activeFile, payloadA);
-      onTraceUpdated(traceA);
-      onSelectStepIndex(1);
-
-      if (isComparisonMode) {
-        const traceB = generateExecutionTrace(activeFile, payloadB);
-        onComparisonTraceUpdated(traceB);
+      const traceB = isComparisonMode ? generateExecutionTrace(activeFile, payloadB) : null;
+      
+      const warning = traceA.warning || traceB?.warning;
+      if (warning) {
+        setPendingTraceA(traceA);
+        setPendingTraceB(traceB);
+        setWarningDetails(warning);
+        setShowLoopWarning(true);
+        setIsTraceRunning(false);
       } else {
-        onComparisonTraceUpdated(null);
+        onTraceUpdated(traceA);
+        onSelectStepIndex(1);
+        if (isComparisonMode) {
+          onComparisonTraceUpdated(traceB);
+        } else {
+          onComparisonTraceUpdated(null);
+        }
+        setIsTraceRunning(false);
       }
-      setIsTraceRunning(false);
     }, 800);
   };
 
@@ -143,20 +209,166 @@ export default function TraceInspectorPanel({
     setCustomQuestion('');
   };
 
+  // RENDER SLIM SCRUBBER STRIP IF COLLAPSED
+  if (!isExpanded) {
+    return (
+      <div className="h-full w-full bg-[#161a22] flex items-center justify-between px-4 font-sans select-none text-slate-300" id="trace-scrubber-strip">
+        {/* Left: Expand/Collapse toggle + Logo */}
+        <div className="flex items-center gap-3 shrink-0">
+          <button
+            onClick={onToggleExpanded}
+            className="flex items-center gap-1 px-2.5 py-1 bg-indigo-500/10 border border-indigo-500/20 hover:bg-indigo-500/20 rounded-md text-xs font-bold text-indigo-400 hover:text-indigo-300 transition cursor-pointer"
+            title="Expand Trace Inspector Dashboard"
+          >
+            <span>▲</span>
+            <span>Dashboard</span>
+          </button>
+          <div className="h-4 w-[1px] bg-[#222733]"></div>
+          <div className="flex items-center gap-1.5 font-bold text-[10px] text-emerald-400 uppercase tracking-widest">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>Live Trace</span>
+          </div>
+        </div>
+
+        {/* Center: Scrubber controls and slider */}
+        {currentTrace ? (
+          <div className="flex-1 max-w-4xl mx-6 flex items-center gap-4">
+            {/* Playback Controls */}
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={() => onSelectStepIndex(1)}
+                disabled={activeStepIndex === 1}
+                className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-white disabled:opacity-30 cursor-pointer"
+                title="First Step"
+              >
+                <ChevronsLeft className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => onSelectStepIndex(Math.max(1, activeStepIndex - 1))}
+                disabled={activeStepIndex === 1}
+                className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-white disabled:opacity-30 cursor-pointer"
+                title="Previous Step"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => setIsPlaying(!isPlaying)}
+                className={`px-2 py-0.5 text-[9px] font-bold rounded cursor-pointer transition ${
+                  isPlaying ? 'bg-rose-950/40 text-rose-400 border border-rose-900/40' : 'bg-indigo-600/10 text-indigo-400 border border-indigo-600/20'
+                }`}
+              >
+                {isPlaying ? 'PAUSE' : 'PLAY'}
+              </button>
+              <button
+                onClick={() => onSelectStepIndex(Math.min(totalSteps, activeStepIndex + 1))}
+                disabled={activeStepIndex === totalSteps}
+                className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-white disabled:opacity-30 cursor-pointer"
+                title="Next Step"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => onSelectStepIndex(totalSteps)}
+                disabled={activeStepIndex === totalSteps}
+                className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-white disabled:opacity-30 cursor-pointer"
+                title="Last Step"
+              >
+                <ChevronsRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+
+            {/* Step Counter */}
+            <span className="text-[11px] font-mono font-bold text-indigo-400 shrink-0 select-none">
+              STEP {activeStepIndex} / {totalSteps}
+            </span>
+
+            {/* Slider */}
+            <input 
+              type="range"
+              min="1"
+              max={totalSteps}
+              value={activeStepIndex}
+              onChange={(e) => onSelectStepIndex(parseInt(e.target.value))}
+              className="flex-1 accent-indigo-500 h-1 bg-slate-900 rounded-lg cursor-pointer min-w-[120px]"
+            />
+
+            {/* Step Event Mini-Annotation */}
+            {activeEvent && (() => {
+              let colorClass = 'text-indigo-400 bg-indigo-500/5 border border-indigo-500/10';
+              let eventSymbol = '●';
+              let eventText = `Step #${activeStepIndex}`;
+              
+              if (activeEvent.type === 'call' || activeEvent.type === 'return') {
+                colorClass = 'text-prism-call bg-prism-call/10 border border-prism-call/20';
+                eventSymbol = '●';
+                eventText = activeEvent.type === 'call' 
+                  ? `call ${activeEvent.functionName}(${activeEvent.variableName || ''})` 
+                  : `return ${JSON.stringify(activeEvent.value)}`;
+              } else if (activeEvent.type === 'assign') {
+                colorClass = 'text-prism-state bg-prism-state/10 border border-prism-state/20';
+                eventSymbol = '➔';
+                eventText = `assign ${activeEvent.variableName} = ${typeof activeEvent.value === 'object' ? JSON.stringify(activeEvent.value) : String(activeEvent.value)}`;
+              } else if (activeEvent.type === 'branch') {
+                colorClass = 'text-prism-branch bg-prism-branch/10 border border-prism-branch/20';
+                eventSymbol = '❖';
+                eventText = `branch: ${activeEvent.outcome || 'taken'}`;
+              } else if (activeEvent.type === 'info') {
+                colorClass = 'text-prism-diverge bg-prism-diverge/10 border border-prism-diverge/20';
+                eventSymbol = '✖';
+                eventText = activeEvent.outcome || 'diverged';
+              }
+              
+              return (
+                <div className={`hidden lg:flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono max-w-[280px] truncate shadow-sm font-bold ${colorClass}`}>
+                  <span>{eventSymbol}</span>
+                  <span className="truncate">{eventText}</span>
+                </div>
+              );
+            })()}
+          </div>
+        ) : (
+          <div className="flex-1 text-center text-xs text-slate-500 italic">No execution trace active</div>
+        )}
+
+        {/* Right: Quick payload display & config trigger */}
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="hidden xl:block text-[10px] text-slate-500 font-mono">
+            Payload: <span className="text-slate-300 font-bold">{payloadA}</span>
+          </div>
+          <button
+            onClick={runTracer}
+            disabled={isTraceRunning}
+            className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[10px] uppercase tracking-wider rounded transition cursor-pointer"
+          >
+            {isTraceRunning ? 'Tracing...' : 'Run Probe'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="h-full flex flex-col bg-[#0B0D13] border-l border-slate-900 select-none text-slate-300 font-sans" id="trace-panel">
+    <div className="h-full flex flex-col bg-[#161a22] select-none text-slate-300 font-sans" id="trace-panel">
       {/* Panel Header */}
-      <div className="h-12 border-b border-slate-900 flex items-center justify-between px-4 bg-[#0F111A]">
+      <div className="h-12 border-b border-[#222733] flex items-center justify-between px-4 bg-[#11141a]">
         <div className="flex items-center gap-2">
           <Cpu className="h-4 w-4 text-indigo-400 animate-pulse" />
           <span className="text-[11px] font-extrabold uppercase tracking-widest text-slate-300">
             Prism Trace Engine
           </span>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
           <span className="text-[8px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 uppercase font-mono font-bold tracking-wider">
             V8 Dynamic Probe
           </span>
+          <button
+            onClick={onToggleExpanded}
+            className="flex items-center gap-1 px-2 py-1 bg-slate-800/60 hover:bg-slate-800 border border-[#222733] rounded-md text-[10px] font-extrabold text-slate-400 hover:text-white transition cursor-pointer"
+            title="Minimize Trace Panel"
+          >
+            <span>▼</span>
+            <span>Scrubber</span>
+          </button>
         </div>
       </div>
 
@@ -477,6 +689,45 @@ export default function TraceInspectorPanel({
           </div>
         )}
       </div>
+
+      {/* Loop Threshold Warning Modal */}
+      {showLoopWarning && warningDetails && (
+        <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#11141a] border-2 border-amber-500/40 rounded-xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-fade-in">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-amber-500/10 rounded-lg text-amber-400 shrink-0">
+                <AlertCircle className="h-6 w-6" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-extrabold text-slate-200 uppercase tracking-wider">Trace Loop Threshold Exceeded</h3>
+                <p className="text-xs text-slate-400 leading-normal">
+                  Prism Trace Engine detected a loop with <span className="text-amber-400 font-extrabold font-mono">{warningDetails.actualCount}</span> iterations in <span className="text-slate-200 font-mono font-bold">{activeFile?.name}</span>.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-850 text-[11px] text-slate-300 leading-normal space-y-1.5">
+              <span className="font-extrabold text-amber-500 uppercase tracking-wider text-[9px] block">Stability & Performance Alert:</span>
+              <span>Running a full trace with more than 500 iterations can cause high memory utilization, browser freeze, or slow down the live debugger iframe visualization.</span>
+            </div>
+
+            <div className="flex flex-col gap-2 pt-2">
+              <button
+                onClick={handleConfirmTruncate}
+                className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold uppercase tracking-wider rounded transition-colors cursor-pointer text-center shadow-lg shadow-indigo-600/10"
+              >
+                Truncate Trace (100 steps - Recommended)
+              </button>
+              <button
+                onClick={handleConfirmContinue}
+                className="w-full py-2 bg-[#1f242f] hover:bg-[#2a303e] text-slate-300 hover:text-white border border-[#222733] text-xs font-bold uppercase tracking-wider rounded transition-colors cursor-pointer text-center"
+              >
+                Continue anyway (Full {warningDetails.actualCount} iterations)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

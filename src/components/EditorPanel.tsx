@@ -200,21 +200,41 @@ export default function EditorPanel({
           <div className="flex-1 flex flex-col overflow-auto h-full p-4 font-mono text-xs">
             <div className="flex w-full min-h-full">
               {/* Line Numbers column */}
-              <div className="w-10 select-none text-right pr-4 text-slate-700 flex flex-col gap-1 border-r border-slate-900/60 select-none">
+              <div className="w-10 select-none text-right pr-4 text-slate-700 flex flex-col gap-1 border-r border-slate-900/60">
                 {lines.map((_, i) => {
-                  const bug = getLineBug(i + 1);
+                  const lineNum = i + 1;
+                  const bug = getLineBug(lineNum);
+                  const isTraceActive = activeTraceLine === lineNum;
+                  
+                  // Compute gutter color and background to match our design spectrum
+                  let gutterColor = 'text-slate-600';
+                  let gutterBg = '';
+                  if (bug) {
+                    gutterColor = bug.severity === 'high' ? 'text-rose-400 font-bold' : 'text-prism-branch font-bold';
+                    gutterBg = bug.severity === 'high' ? 'bg-rose-950/20' : 'bg-prism-branch/15';
+                  } else if (isTraceActive) {
+                    if (activeTraceEvent?.type === 'call' || activeTraceEvent?.type === 'return') {
+                      gutterColor = 'text-prism-call font-bold';
+                      gutterBg = 'bg-prism-call/15';
+                    } else if (activeTraceEvent?.type === 'assign') {
+                      gutterColor = 'text-prism-state font-bold';
+                      gutterBg = 'bg-prism-state/15';
+                    } else if (activeTraceEvent?.type === 'branch') {
+                      gutterColor = 'text-prism-branch font-bold';
+                      gutterBg = 'bg-prism-branch/15';
+                    } else {
+                      gutterColor = 'text-prism-diverge font-bold';
+                      gutterBg = 'bg-prism-diverge/15';
+                    }
+                  }
+
                   return (
                     <div
                       key={i}
-                      className={`h-5 flex items-center justify-end text-[10px] ${
-                        bug
-                          ? bug.severity === 'high'
-                            ? 'text-red-500 font-bold bg-red-950/20'
-                            : 'text-amber-500 font-bold bg-amber-950/20'
-                          : ''
-                      }`}
+                      className={`h-5 flex items-center justify-end text-[10px] px-1 transition-all duration-150 ${gutterColor} ${gutterBg}`}
                     >
-                      {i + 1}
+                      {isTraceActive && <span className="mr-1 animate-pulse text-[8px]">▶</span>}
+                      {lineNum}
                     </div>
                   );
                 })}
@@ -241,14 +261,53 @@ export default function EditorPanel({
                     return (
                       <div key={i} className="min-h-5 relative">
                         {/* Active Trace Line Highlight */}
-                        {activeTraceLine === lineNum && (
-                          <div
-                            className="absolute inset-0 -left-4 w-[calc(100%+16px)] pointer-events-auto bg-indigo-500/15 border-l-2 border-indigo-400 flex items-center justify-end pr-2 font-mono text-[9px] text-indigo-300 font-extrabold tracking-wider select-none"
-                            title={`Execution is currently at Step #${activeTraceStep}: ${activeTraceEvent?.type}`}
-                          >
-                            <span>ACTIVE TRACE STEP #{activeTraceStep}</span>
-                          </div>
-                        )}
+                        {activeTraceLine === lineNum && (() => {
+                          let colorClass = 'bg-indigo-500/15 border-indigo-400';
+                          let textClass = 'text-indigo-300';
+                          let eventSymbol = '●';
+                          let eventText = `Step #${activeTraceStep}`;
+                          
+                          if (activeTraceEvent) {
+                            if (activeTraceEvent.type === 'call' || activeTraceEvent.type === 'return') {
+                              colorClass = 'bg-prism-call/10 border-prism-call';
+                              textClass = 'text-prism-call';
+                              eventSymbol = '●';
+                              eventText = activeTraceEvent.type === 'call' 
+                                ? `call ${activeTraceEvent.functionName}(${activeTraceEvent.variableName || ''})` 
+                                : `return ${JSON.stringify(activeTraceEvent.value)}`;
+                            } else if (activeTraceEvent.type === 'assign') {
+                              colorClass = 'bg-prism-state/10 border-prism-state';
+                              textClass = 'text-prism-state';
+                              eventSymbol = '➔';
+                              eventText = `assign ${activeTraceEvent.variableName} = ${typeof activeTraceEvent.value === 'object' ? JSON.stringify(activeTraceEvent.value) : String(activeTraceEvent.value)}`;
+                            } else if (activeTraceEvent.type === 'branch') {
+                              colorClass = 'bg-prism-branch/10 border-prism-branch';
+                              textClass = 'text-prism-branch';
+                              eventSymbol = '❖';
+                              eventText = `branch: ${activeTraceEvent.outcome || 'taken'}`;
+                            } else if (activeTraceEvent.type === 'diverge') {
+                              colorClass = 'bg-prism-diverge/10 border-prism-diverge';
+                              textClass = 'text-prism-diverge';
+                              eventSymbol = '✖';
+                              eventText = activeTraceEvent.outcome || 'diverged';
+                            }
+                          }
+                          
+                          return (
+                            <div
+                              className={`absolute inset-0 -left-4 w-[calc(100%+16px)] pointer-events-auto border-l-2 ${colorClass} flex items-center justify-between pr-2 pl-4 font-mono text-[10px] select-none`}
+                              title={`Execution is currently at Step #${activeTraceStep}`}
+                            >
+                              <span className={`font-extrabold tracking-wider ${textClass} opacity-40 uppercase`}>
+                                STEP {activeTraceStep}
+                              </span>
+                              <span className={`px-2 py-0.5 rounded bg-[#11141a]/95 border border-[#222733]/50 ${textClass} font-bold max-w-[70%] truncate shadow-md animate-fade-in`}>
+                                <span className="mr-1.5 opacity-80">{eventSymbol}</span>
+                                {eventText}
+                              </span>
+                            </div>
+                          );
+                        })()}
 
                         {/* Highlights behind the text */}
                         {bug && (

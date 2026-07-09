@@ -112,14 +112,14 @@ export default function AIDebuggerTabs({
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#0F1117] text-slate-300 border-l border-slate-800 font-sans" id="ai-debugger-tabs">
+    <div className="flex flex-col h-full bg-[#161a22] text-slate-300 border-l border-[#222733] font-sans" id="ai-debugger-tabs">
       {/* Tabs list */}
-      <div className="grid grid-cols-3 border-b border-slate-800 text-center bg-slate-950/80 text-xs">
+      <div className="grid grid-cols-3 border-b border-[#222733] text-center bg-[#11141a] text-xs">
         <button
           onClick={() => setActiveTab('debug')}
-          className={`py-3 font-semibold transition uppercase tracking-wider flex items-center justify-center gap-1.5 ${
+          className={`py-3 font-semibold transition uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer ${
             activeTab === 'debug'
-              ? 'border-b-2 border-indigo-500 text-indigo-400 bg-[#0F1117]'
+              ? 'border-b-2 border-indigo-500 text-indigo-400 bg-[#161a22]'
               : 'border-b-2 border-transparent text-slate-500 hover:text-slate-300'
           }`}
         >
@@ -128,9 +128,9 @@ export default function AIDebuggerTabs({
         </button>
         <button
           onClick={() => setActiveTab('explain')}
-          className={`py-3 font-semibold transition uppercase tracking-wider flex items-center justify-center gap-1.5 ${
+          className={`py-3 font-semibold transition uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer ${
             activeTab === 'explain'
-              ? 'border-b-2 border-indigo-500 text-indigo-400 bg-[#0F1117]'
+              ? 'border-b-2 border-indigo-500 text-indigo-400 bg-[#161a22]'
               : 'border-b-2 border-transparent text-slate-500 hover:text-slate-300'
           }`}
         >
@@ -139,9 +139,9 @@ export default function AIDebuggerTabs({
         </button>
         <button
           onClick={() => setActiveTab('tutor')}
-          className={`py-3 font-semibold transition uppercase tracking-wider flex items-center justify-center gap-1.5 ${
+          className={`py-3 font-semibold transition uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer ${
             activeTab === 'tutor'
-              ? 'border-b-2 border-indigo-500 text-indigo-400 bg-[#0F1117]'
+              ? 'border-b-2 border-indigo-500 text-indigo-400 bg-[#161a22]'
               : 'border-b-2 border-transparent text-slate-500 hover:text-slate-300'
           }`}
         >

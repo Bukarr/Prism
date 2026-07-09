@@ -1,28 +1,33 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   
-  --color-geo-bg: #0A0C10;
-  --color-geo-panel: #0F1117;
-  --color-geo-border: #1e293b;
-  --color-geo-accent: #6366f1;
+  --color-prism-bg: #11141a;
+  --color-prism-panel: #161a22;
+  --color-prism-border: #222733;
+  --color-prism-input: #1b1f2b;
+  
+  --color-prism-call: #8e7cc3;
+  --color-prism-state: #3baea9;
+  --color-prism-branch: #dfaa57;
+  --color-prism-diverge: #e07a6d;
 }
 
-/* Custom scrollbar and sleek custom styling to match Geometric Balance */
+/* Custom scrollbar and sleek custom styling to match Prism */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #0A0C10;
+  background: #11141a;
 }
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
+  background: #222733;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #6366f1;
+  background: #3baea9;
 }

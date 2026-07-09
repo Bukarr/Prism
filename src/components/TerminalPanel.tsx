@@ -64,7 +64,7 @@ export default function TerminalPanel({
   // Terminal Panel settings
   const [isOpen, setIsOpen] = useState(true);
   const [isMaximized, setIsMaximized] = useState(false);
-  const [terminalTheme, setTerminalTheme] = useState<'retro' | 'cyberpunk' | 'monokai' | 'slate'>('retro');
+  const [terminalTheme, setTerminalTheme] = useState<'retro' | 'cyberpunk' | 'monokai' | 'slate'>('slate');
   
   // Tabs state
   const [tabs, setTabs] = useState<TerminalTab[]>([
@@ -537,12 +537,12 @@ export default function TerminalPanel({
         };
       case 'slate':
         return {
-          bg: 'bg-[#1E293B]',
-          text: 'text-[#F8FAFC]',
-          border: 'border-slate-700',
-          inputBg: 'bg-[#0F172A]',
+          bg: 'bg-[#161a22]',
+          text: 'text-slate-200',
+          border: 'border-[#222733]',
+          inputBg: 'bg-[#11141a]',
           caretColor: '#6366F1',
-          promptColor: 'text-[#38BDF8]',
+          promptColor: 'text-indigo-400',
           commandColor: 'text-[#E2E8F0]'
         };
       case 'retro':
@@ -586,7 +586,7 @@ export default function TerminalPanel({
       onClick={focusInput}
     >
       {/* Terminal Title Bar */}
-      <div className="h-10 bg-slate-950/90 border-b border-slate-900/60 flex items-center justify-between px-4 select-none shrink-0">
+      <div className="h-10 bg-[#11141a] border-b border-[#222733] flex items-center justify-between px-4 select-none shrink-0">
         <div className="flex items-center gap-2">
           <TerminalIcon className="h-4 w-4 text-slate-450" />
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-sans">
@@ -610,15 +610,15 @@ export default function TerminalPanel({
               }}
               className={`px-3 py-1 text-[10px] font-mono rounded flex items-center gap-2 border transition cursor-pointer select-none shrink-0 ${
                 tab.isActive
-                  ? 'bg-slate-900 border-slate-800 text-indigo-400 font-bold'
-                  : 'bg-transparent border-transparent text-slate-500 hover:text-slate-350 hover:bg-slate-900/30'
+                  ? 'bg-[#161a22] border-[#222733] text-indigo-400 font-bold'
+                  : 'bg-transparent border-transparent text-slate-500 hover:text-slate-350 hover:bg-[#161a22]/35'
               }`}
             >
               <span>{tab.name}</span>
               {tabs.length > 1 && (
                 <button
                   onClick={(e) => handleCloseTab(tab.id, e)}
-                  className="p-0.5 rounded text-slate-600 hover:text-red-400 transition hover:bg-slate-850"
+                  className="p-0.5 rounded text-slate-600 hover:text-red-400 transition hover:bg-[#1f242f]"
                   title="Close session"
                 >
                   <X className="h-2.5 w-2.5" />
@@ -632,7 +632,7 @@ export default function TerminalPanel({
               e.stopPropagation();
               handleAddNewTab();
             }}
-            className="p-1 rounded bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-500 hover:text-slate-300 transition cursor-pointer"
+            className="p-1 rounded bg-[#11141a] hover:bg-[#1f242f] border border-[#222733] text-slate-500 hover:text-slate-300 transition cursor-pointer"
             title="Open new terminal tab"
           >
             <Plus className="h-3 w-3" />

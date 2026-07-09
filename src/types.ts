@@ -124,5 +124,11 @@ export interface ExecutionTrace {
   error?: string;
   stdout: string[];
   inputPayload?: string;
+  warning?: {
+    type: 'loop_threshold_exceeded';
+    message: string;
+    threshold: number;
+    actualCount: number;
+  };
 }
 

@@ -64,6 +64,89 @@ export function generateExecutionTrace(
     });
   };
 
+  // Loop iteration detection
+  let loopIterations = 0;
+  
+  // 1. Check if the code contains a loop with range(N) or i < N
+  const rangeMatch = file.content.match(/range\((\d+)\)/);
+  if (rangeMatch) {
+    loopIterations = parseInt(rangeMatch[1]);
+  } else {
+    const loopLimitMatch = file.content.match(/(?:i|j|k)\s*<\s*(\d+)/);
+    if (loopLimitMatch) {
+      loopIterations = parseInt(loopLimitMatch[1]);
+    }
+  }
+  
+  // 2. Check if the payload contains an array whose length is > 500, or a specific "iterations" count
+  if (parsedPayload) {
+    if (Array.isArray(parsedPayload) && parsedPayload.length > 500) {
+      loopIterations = parsedPayload.length;
+    } else if (parsedPayload.data && Array.isArray(parsedPayload.data) && parsedPayload.data.length > 500) {
+      loopIterations = parsedPayload.data.length;
+    } else if (parsedPayload.configs && Array.isArray(parsedPayload.configs.data) && parsedPayload.configs.data.length > 500) {
+      loopIterations = parsedPayload.configs.data.length;
+    } else if (typeof parsedPayload.iterations === 'number') {
+      loopIterations = parsedPayload.iterations;
+    }
+  }
+
+  // Handle dynamic loop iteration tracing and threshold warning
+  if (loopIterations > 0) {
+    stdout.push(`Executing ${filename}...`);
+    stdout.push(`[TRACER INFO] Loop statement identified with ${loopIterations} iterations.`);
+    
+    const warning = loopIterations > 500 ? {
+      type: 'loop_threshold_exceeded' as const,
+      message: `Loop iteration count (${loopIterations}) exceeds threshold of 500.`,
+      threshold: 500,
+      actualCount: loopIterations
+    } : undefined;
+
+    // Find where the loop resides
+    const loopLineIdx = codeLines.findIndex(l => l.includes('for ') || l.includes('while ') || l.includes('forEach') || l.includes('range('));
+    const bodyLineIdx = loopLineIdx >= 0 ? loopLineIdx + 1 : 10;
+    
+    addEvent(loopLineIdx >= 0 ? loopLineIdx : 5, 'call', 'global', 'args', []);
+    
+    for (let i = 0; i < loopIterations; i++) {
+      currentScope['i'] = i;
+      currentScope['accumulator'] = i * 2;
+      
+      addEvent(
+        loopLineIdx >= 0 ? loopLineIdx : 8,
+        'branch',
+        'loop_context',
+        'i',
+        i,
+        `Iteration ${i + 1}/${loopIterations}`
+      );
+      
+      addEvent(
+        bodyLineIdx < codeLines.length ? bodyLineIdx : 9,
+        'assign',
+        'loop_context',
+        'accumulator',
+        i * 2
+      );
+      
+      if (i % 100 === 0 || i === loopIterations - 1 || loopIterations <= 10) {
+        stdout.push(`[stdout] Iteration ${i + 1} processed. Accumulator = ${i * 2}`);
+      }
+    }
+    
+    addEvent(codeLines.length - 1, 'return', 'global', 'exitCode', 0);
+    
+    return {
+      id: `trace-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp: new Date().toLocaleTimeString(),
+      events,
+      stdout,
+      warning,
+      inputPayload: payloadStr
+    };
+  }
+
   // Run a dynamic line-by-line simulation of processUserData in index.js
   if (filename === 'index.js' || file.content.includes('processUserData')) {
     // Step 1: Global setup

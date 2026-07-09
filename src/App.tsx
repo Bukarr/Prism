@@ -22,6 +22,7 @@ import VersionControlPanel from './components/VersionControlPanel';
 import IDESyncPanel from './components/IDESyncPanel';
 import TerminalPanel from './components/TerminalPanel';
 import TraceInspectorPanel from './components/TraceInspectorPanel';
+import { generateExecutionTrace } from './lib/traceEngine';
 
 export default function App() {
   // Master Workspace States
@@ -30,8 +31,13 @@ export default function App() {
 
   // Sidebar Panels layout
   // 'explorer' is always on the left.
-  // 'rightPanel' holds one of: 'ai' | 'collab' | 'vc' | 'sync' | 'trace'
-  const [rightPanel, setRightPanel] = useState<'ai' | 'collab' | 'vc' | 'sync' | 'trace'>('ai');
+  // 'rightPanel' holds one of: 'ai' | 'collab' | 'vc' | 'sync'
+  const [rightPanel, setRightPanel] = useState<'ai' | 'collab' | 'vc' | 'sync'>('ai');
+
+  // Collapsible panels states
+  const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
+  const [isTraceDrawerExpanded, setIsTraceDrawerExpanded] = useState(false);
 
   // Trace Engine States
   const [currentTrace, setCurrentTrace] = useState<ExecutionTrace | null>(null);
@@ -364,14 +370,44 @@ export default function App() {
   const handleApplyFix = (bugId: string, fixCode: string) => {
     if (!activeFile) return;
 
-    // Apply the correction (For high-fidelity, replace full code or apply template correction)
-    // We replace the entire text block or simulate precise inline fixes:
+    const fileLines = activeFile.content.split('\n');
+    const bug = debugResult?.bugs?.find((b) => b.id === bugId);
+    
     let newContent = fixCode;
-    if (fixCode.trim().length < activeFile.content.trim().length / 3) {
-      // It's a short snippet, let's insert or overwrite it based on context
-      // Fallback: replace files completely or let them accept the full file
-      // If the fix is full code block, apply it completely:
-      newContent = fixCode;
+    
+    // Check if the fixCode is a full file or a snippet
+    const isFullFile = fixCode.includes('import ') && fixCode.includes('export ') || 
+                       (fixCode.split('\n').length > fileLines.length * 0.7 && fileLines.length > 10);
+                       
+    if (bug && !isFullFile) {
+      const lineIdx = bug.line - 1;
+      if (lineIdx >= 0 && lineIdx < fileLines.length) {
+        const currentLineText = fileLines[lineIdx];
+        
+        // Multi-line block detection (e.g., loops like forEach that span multiple lines)
+        let linesToRemove = 1;
+        if (currentLineText.includes('forEach') && lineIdx + 4 < fileLines.length && fileLines[lineIdx + 4].includes('});')) {
+          linesToRemove = 5;
+        } else if (currentLineText.includes('forEach') && lineIdx + 3 < fileLines.length && fileLines[lineIdx + 3].includes('});')) {
+          linesToRemove = 4;
+        } else if (currentLineText.includes('forEach') && lineIdx + 2 < fileLines.length && fileLines[lineIdx + 2].includes('});')) {
+          linesToRemove = 3;
+        }
+        
+        // Preserving original indentation
+        const indentMatch = currentLineText.match(/^(\s*)/);
+        const indent = indentMatch ? indentMatch[1] : '';
+        
+        // Split fixCode lines and indent them
+        const fixLines = fixCode.split('\n').map((line, idx) => {
+          if (idx === 0) return indent + line.trimStart();
+          return indent + line;
+        });
+        
+        // Replace the specific line(s) in fileLines
+        fileLines.splice(lineIdx, linesToRemove, ...fixLines);
+        newContent = fileLines.join('\n');
+      }
     }
 
     const updated = files.map((f) => {
@@ -626,17 +662,39 @@ export default function App() {
       </header>
 
       {/* Main Workspace */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden bg-[#11141a]">
         {/* Workspace Action Rail (Far Left Narrow Utility Rail) */}
-        <div className="w-16 bg-[#0F1117] border-r border-slate-800 flex flex-col items-center py-4 justify-between shrink-0">
+        <div className="w-16 bg-[#161a22] border-r border-[#222733] flex flex-col items-center py-4 justify-between shrink-0 select-none">
           <div className="flex flex-col gap-4">
+            {/* File Explorer Toggle */}
+            <button
+              onClick={() => setIsLeftPanelOpen(!isLeftPanelOpen)}
+              className={`p-3 rounded-lg transition-all ${
+                isLeftPanelOpen
+                  ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
+                  : 'text-slate-500 hover:text-slate-350 hover:bg-slate-800/40'
+              }`}
+              title={isLeftPanelOpen ? "Collapse File Explorer" : "Expand File Explorer"}
+            >
+              <FolderOpen className="h-4 w-4" />
+            </button>
+
+            <div className="h-[1px] w-8 bg-[#222733] my-1 self-center"></div>
+
             {/* AI Workspace Trigger */}
             <button
-              onClick={() => setRightPanel('ai')}
-              className={`p-3 rounded transition-all ${
-                rightPanel === 'ai'
+              onClick={() => {
+                if (rightPanel === 'ai' && isRightPanelOpen) {
+                  setIsRightPanelOpen(false);
+                } else {
+                  setRightPanel('ai');
+                  setIsRightPanelOpen(true);
+                }
+              }}
+              className={`p-3 rounded-lg transition-all ${
+                rightPanel === 'ai' && isRightPanelOpen
                   ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
-                  : 'text-slate-500 hover:text-slate-300'
+                  : 'text-slate-500 hover:text-slate-350 hover:bg-slate-800/40'
               }`}
               title="AI Debugger, Explainer & Tutor"
             >
@@ -645,24 +703,43 @@ export default function App() {
 
             {/* Prism Execution Trace Trigger */}
             <button
-              onClick={() => setRightPanel('trace')}
-              className={`p-3 rounded transition-all ${
-                rightPanel === 'trace'
-                  ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
-                  : 'text-slate-500 hover:text-slate-300'
+              onClick={() => {
+                if (!currentTrace) {
+                  // Instrument code automatically if no trace is active
+                  if (activeFile) {
+                    setIsTraceDrawerExpanded(true);
+                    const traceA = generateExecutionTrace(activeFile);
+                    setCurrentTrace(traceA);
+                    setActiveTraceStep(1);
+                  }
+                } else {
+                  setIsTraceDrawerExpanded(!isTraceDrawerExpanded);
+                }
+              }}
+              className={`p-3 rounded-lg transition-all ${
+                currentTrace
+                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                  : 'text-slate-500 hover:text-slate-350 hover:bg-slate-800/40'
               }`}
-              title="Prism Execution Trace Timeline"
+              title="Toggle Execution Trace Scrubber Drawer"
             >
-              <Cpu className="h-4 w-4 text-indigo-400" />
+              <Cpu className="h-4 w-4" />
             </button>
 
             {/* Pair Programming Trigger */}
             <button
-              onClick={() => setRightPanel('collab')}
-              className={`p-3 rounded transition-all ${
-                rightPanel === 'collab'
+              onClick={() => {
+                if (rightPanel === 'collab' && isRightPanelOpen) {
+                  setIsRightPanelOpen(false);
+                } else {
+                  setRightPanel('collab');
+                  setIsRightPanelOpen(true);
+                }
+              }}
+              className={`p-3 rounded-lg transition-all ${
+                rightPanel === 'collab' && isRightPanelOpen
                   ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
-                  : 'text-slate-500 hover:text-slate-300'
+                  : 'text-slate-500 hover:text-slate-350 hover:bg-slate-800/40'
               }`}
               title="Pair Programming Room"
             >
@@ -671,11 +748,18 @@ export default function App() {
 
             {/* Version Control Trigger */}
             <button
-              onClick={() => setRightPanel('vc')}
-              className={`p-3 rounded transition-all ${
-                rightPanel === 'vc'
+              onClick={() => {
+                if (rightPanel === 'vc' && isRightPanelOpen) {
+                  setIsRightPanelOpen(false);
+                } else {
+                  setRightPanel('vc');
+                  setIsRightPanelOpen(true);
+                }
+              }}
+              className={`p-3 rounded-lg transition-all ${
+                rightPanel === 'vc' && isRightPanelOpen
                   ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
-                  : 'text-slate-500 hover:text-slate-300'
+                  : 'text-slate-500 hover:text-slate-350 hover:bg-slate-800/40'
               }`}
               title="Version Control Snapshots"
             >
@@ -684,11 +768,18 @@ export default function App() {
 
             {/* IDE & Cloud Sync Trigger */}
             <button
-              onClick={() => setRightPanel('sync')}
-              className={`p-3 rounded transition-all ${
-                rightPanel === 'sync'
+              onClick={() => {
+                if (rightPanel === 'sync' && isRightPanelOpen) {
+                  setIsRightPanelOpen(false);
+                } else {
+                  setRightPanel('sync');
+                  setIsRightPanelOpen(true);
+                }
+              }}
+              className={`p-3 rounded-lg transition-all ${
+                rightPanel === 'sync' && isRightPanelOpen
                   ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
-                  : 'text-slate-500 hover:text-slate-300'
+                  : 'text-slate-500 hover:text-slate-350 hover:bg-slate-800/40'
               }`}
               title="IDE Configurations & Latency Diagnostics"
             >
@@ -696,26 +787,28 @@ export default function App() {
             </button>
           </div>
 
-          <div className="text-[9px] text-slate-600 font-mono tracking-widest select-none">
-            V2.4
+          <div className="text-[10px] text-slate-600 font-mono tracking-wider select-none font-extrabold">
+            PRISM
           </div>
         </div>
 
         {/* Column 1: Files Tree Explorer */}
-        <div className="w-80 h-full flex-shrink-0">
-          <CodebaseExplorer
-            files={files}
-            activeFileId={activeFileId}
-            onSelectFile={handleSelectFile}
-            onCodebaseUpdated={handleCodebaseUpdated}
-            onAddFile={handleAddFile}
-            onDeleteFile={handleDeleteFile}
-          />
-        </div>
+        {isLeftPanelOpen && (
+          <div className="w-80 h-full flex-shrink-0 border-r border-[#222733] animate-fade-in">
+            <CodebaseExplorer
+              files={files}
+              activeFileId={activeFileId}
+              onSelectFile={handleSelectFile}
+              onCodebaseUpdated={handleCodebaseUpdated}
+              onAddFile={handleAddFile}
+              onDeleteFile={handleDeleteFile}
+            />
+          </div>
+        )}
 
         {/* Column 2: Code Editor (The Canvas) */}
-        <div className="flex-1 h-full flex flex-col min-h-0">
-          <div className="flex-1 min-h-0 flex flex-col">
+        <div className="flex-1 h-full flex flex-col min-h-0 bg-[#12151c]">
+          <div className="flex-1 min-h-0 flex flex-col relative">
             <EditorPanel
               file={activeFile}
               onContentChange={handleContentChange}
@@ -734,6 +827,31 @@ export default function App() {
               activeTraceEvent={currentTrace?.events[activeTraceStep - 1] || null}
             />
           </div>
+
+          {/* PRISM TRACE DRAWER (Bottom drawer: collapsed to a slim scrubber strip by default, expanding upward only when user is debugging) */}
+          {currentTrace && (
+            <div className={`border-t border-[#222733] transition-all duration-300 bg-[#161a22] flex flex-col shrink-0 ${isTraceDrawerExpanded ? 'h-[380px]' : 'h-[52px]'}`}>
+              <TraceInspectorPanel
+                activeFile={activeFile}
+                currentTrace={currentTrace}
+                onTraceUpdated={(trace) => {
+                  setCurrentTrace(trace);
+                  setActiveTraceStep(1);
+                }}
+                comparisonTrace={comparisonTrace}
+                onComparisonTraceUpdated={setComparisonTrace}
+                activeStepIndex={activeTraceStep}
+                onSelectStepIndex={setActiveTraceStep}
+                onTriggerGroundedAIExplanation={(question, trace, step, diff) => 
+                  handleTriggerGroundedAIExplanation(question, trace, step, diff)
+                }
+                isAIAnswering={isExplainingGrounded}
+                isExpanded={isTraceDrawerExpanded}
+                onToggleExpanded={() => setIsTraceDrawerExpanded(!isTraceDrawerExpanded)}
+              />
+            </div>
+          )}
+
           <TerminalPanel
             files={files}
             activeFile={activeFile}
@@ -749,75 +867,61 @@ export default function App() {
         </div>
 
         {/* Column 3: Custom Right Sidebar Action Tab */}
-        <div className="w-[420px] h-full flex-shrink-0 border-l border-slate-800">
-          {rightPanel === 'ai' && (
-            <AIDebuggerTabs
-              activeFile={activeFile}
-              debugResult={debugResult}
-              explainResult={explainResult}
-              tutorResult={tutorResult}
-              activeTab={aiActiveTab}
-              setActiveTab={setAiActiveTab}
-              onApplyFix={handleApplyFix}
-              onVerifyTutorAnswer={handleVerifyTutorAnswer}
-              isVerifyingAnswer={isVerifyingAnswer}
-              tutorVerificationFeedback={tutorVerificationFeedback}
-              onStartTutor={handleStartTutor}
-              groundedAIResponse={groundedAIResponse}
-              onSelectTraceStep={(step) => { setActiveTraceStep(step); setRightPanel('trace'); }}
-              onClearGroundedResponse={() => setGroundedAIResponse(null)}
-              isGroundedRunning={isExplainingGrounded}
-            />
-          )}
+        {isRightPanelOpen && (
+          <div className="w-[420px] h-full flex-shrink-0 border-l border-[#222733] bg-[#161a22] flex flex-col overflow-hidden animate-fade-in">
+            {rightPanel === 'ai' && (
+              <AIDebuggerTabs
+                activeFile={activeFile}
+                debugResult={debugResult}
+                explainResult={explainResult}
+                tutorResult={tutorResult}
+                activeTab={aiActiveTab}
+                setActiveTab={setAiActiveTab}
+                onApplyFix={handleApplyFix}
+                onVerifyTutorAnswer={handleVerifyTutorAnswer}
+                isVerifyingAnswer={isVerifyingAnswer}
+                tutorVerificationFeedback={tutorVerificationFeedback}
+                onStartTutor={handleStartTutor}
+                groundedAIResponse={groundedAIResponse}
+                onSelectTraceStep={(step) => { 
+                  setActiveTraceStep(step); 
+                  setIsTraceDrawerExpanded(true); 
+                }}
+                onClearGroundedResponse={() => setGroundedAIResponse(null)}
+                isGroundedRunning={isExplainingGrounded}
+              />
+            )}
 
-          {rightPanel === 'trace' && (
-            <TraceInspectorPanel
-              activeFile={activeFile}
-              currentTrace={currentTrace}
-              onTraceUpdated={(trace) => {
-                setCurrentTrace(trace);
-                setActiveTraceStep(1);
-              }}
-              comparisonTrace={comparisonTrace}
-              onComparisonTraceUpdated={setComparisonTrace}
-              activeStepIndex={activeTraceStep}
-              onSelectStepIndex={setActiveTraceStep}
-              onTriggerGroundedAIExplanation={(question, trace, step, diff) => 
-                handleTriggerGroundedAIExplanation(question, trace, step, diff)
-              }
-              isAIAnswering={isExplainingGrounded}
-            />
-          )}
+            {rightPanel === 'collab' && (
+              <CollaborationPanel
+                room={room}
+                username={username}
+                setUsername={setUsername}
+                onStartRoom={handleStartRoom}
+                onJoinRoom={handleJoinRoom}
+                onSendMessage={handleSendMessage}
+                onTriggerAIMentorChat={handleTriggerAIMentorChat}
+                userId={userId}
+                onToggleScreenShare={handleToggleScreenShare}
+                onSendConsoleCommand={handleSendConsoleCommand}
+              />
+            )}
 
-          {rightPanel === 'collab' && (
-            <CollaborationPanel
-              room={room}
-              username={username}
-              setUsername={setUsername}
-              onStartRoom={handleStartRoom}
-              onJoinRoom={handleJoinRoom}
-              onSendMessage={handleSendMessage}
-              onTriggerAIMentorChat={handleTriggerAIMentorChat}
-              userId={userId}
-              onToggleScreenShare={handleToggleScreenShare}
-              onSendConsoleCommand={handleSendConsoleCommand}
-            />
-          )}
+            {rightPanel === 'vc' && (
+              <VersionControlPanel
+                commits={commits}
+                activeCommitHash={activeCommitHash}
+                onCheckout={handleCheckoutCommit}
+                onToggleDiff={handleToggleDiff}
+                diffCommit={diffCommit}
+              />
+            )}
 
-          {rightPanel === 'vc' && (
-            <VersionControlPanel
-              commits={commits}
-              activeCommitHash={activeCommitHash}
-              onCheckout={handleCheckoutCommit}
-              onToggleDiff={handleToggleDiff}
-              diffCommit={diffCommit}
-            />
-          )}
-
-          {rightPanel === 'sync' && (
-            <IDESyncPanel />
-          )}
-        </div>
+            {rightPanel === 'sync' && (
+              <IDESyncPanel />
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

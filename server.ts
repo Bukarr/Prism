@@ -42,7 +42,7 @@ async function generateContentWithFallback(params: {
 
   const models = [
     "gemini-3.5-flash",
-    "gemini-2.5-flash-preview"
+    "gemini-2.5-flash"
   ];
 
   let lastError: any = null;
@@ -194,7 +194,7 @@ ${code}
   if (code.includes("== NaN") || code.includes("=== NaN")) {
     bugs.push({
       id: "bug-nan",
-      line: code.split("\n").findIndex(l => l.includes("NaN")) + 1 || 12,
+      line: code.split("\n").findIndex(l => l.includes("NaN")) + 1 || 17,
       severity: "high",
       title: "Incorrect NaN Comparison",
       description: "Comparing values directly to NaN using comparison operators always returns false. Use Number.isNaN() instead.",
@@ -203,14 +203,16 @@ ${code}
         "Replace the expression (x === NaN) with Number.isNaN(x).",
         "Verify standard double/triple equals comparisons are not used elsewhere with special numeric types."
       ],
-      suggestedFix: "if (Number.isNaN(value)) {\n  console.log('Value is NaN');\n}"
+      suggestedFix: code.includes("user.age") 
+        ? "if (user.age === null || Number.isNaN(user.age)) {"
+        : "if (Number.isNaN(value)) {"
     });
   }
 
   if (code.includes("document.write")) {
     bugs.push({
       id: "bug-docwrite",
-      line: code.split("\n").findIndex(l => l.includes("document.write")) + 1 || 4,
+      line: code.split("\n").findIndex(l => l.includes("document.write")) + 1 || 22,
       severity: "medium",
       title: "Use of Deprecated document.write()",
       description: "document.write() is highly discouraged because it can overwrite the entire DOM, blocks rendering, and causes security vulnerabilities.",
@@ -219,14 +221,16 @@ ${code}
         "Select a container element in your HTML using document.getElementById or querySelector.",
         "Modify the element's textContent or innerHTML to safely append content."
       ],
-      suggestedFix: "const container = document.getElementById('output');\nif (container) {\n  container.textContent = 'Data loaded';\n}"
+      suggestedFix: code.includes("user.name")
+        ? "console.log(\"Welcome back, \" + user.name + \"!\");"
+        : "console.log('Output updated');"
     });
   }
 
   if (code.includes("eval(") || code.includes("eval (")) {
     bugs.push({
       id: "bug-eval",
-      line: code.split("\n").findIndex(l => l.includes("eval(")) + 1 || 8,
+      line: code.split("\n").findIndex(l => l.includes("eval(")) + 1 || 15,
       severity: "high",
       title: "Dangerous Use of eval()",
       description: "Using eval() poses a severe security risk by executing arbitrary scripts in the global scope. It is also extremely slow and difficult to optimize.",
@@ -235,14 +239,16 @@ ${code}
         "Identify if you can parse JSON values using JSON.parse().",
         "If executing dynamic functions, rewrite using a safe Map dispatcher or structural conditions."
       ],
-      suggestedFix: "const parsedData = JSON.parse(jsonData);"
+      suggestedFix: code.includes("jsonData")
+        ? "const user = JSON.parse(jsonData);"
+        : "const parsedData = JSON.parse(jsonData);"
     });
   }
 
   if (code.includes("forEach") && code.includes("await")) {
     bugs.push({
       id: "bug-async-foreach",
-      line: code.split("\n").findIndex(l => l.includes("forEach")) + 1 || 15,
+      line: code.split("\n").findIndex(l => l.includes("forEach")) + 1 || 43,
       severity: "medium",
       title: "Async Callback inside Array.forEach",
       description: "forEach is not async-aware. It will execute callbacks in parallel but will not wait for completion before proceeding, leading to race conditions.",
@@ -252,7 +258,9 @@ ${code}
         "This allows proper sequential execution and awaits correctly.",
         "Alternatively, use Promise.all() if parallel execution is preferred."
       ],
-      suggestedFix: "for (const item of items) {\n  await processItem(item);\n}"
+      suggestedFix: code.includes("files.forEach")
+        ? "for (const file of files) {\n  const data = await mockFetchFileData(file);\n  console.log(`Successfully synced file: ${file}`);\n  results.push({ file, size: data.length });\n}"
+        : "for (const item of items) {\n  await processItem(item);\n}"
     });
   }
 
