@@ -9,6 +9,7 @@ interface CodebaseExplorerProps {
   onCodebaseUpdated: (newFiles: CodeFile[]) => void;
   onAddFile: (name: string, content?: string) => void;
   onDeleteFile: (id: string) => void;
+  onClose?: () => void;
 }
 
 export default function CodebaseExplorer({
@@ -18,6 +19,7 @@ export default function CodebaseExplorer({
   onCodebaseUpdated,
   onAddFile,
   onDeleteFile,
+  onClose,
 }: CodebaseExplorerProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [newFileName, setNewFileName] = useState('');
@@ -161,6 +163,17 @@ export default function CodebaseExplorer({
           >
             <FilePlus className="h-4 w-4" />
           </button>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-1 hover:bg-[#1f242f] hover:text-red-400 rounded text-slate-500 transition cursor-pointer"
+              title="Close Drawer"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          )}
         </div>
       </div>
 

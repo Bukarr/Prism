@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Terminal, Shield, Key, RefreshCw, Zap, ExternalLink, Sliders } from 'lucide-react';
 
-export default function IDESyncPanel() {
+interface IDESyncPanelProps {
+  onClose?: () => void;
+}
+
+export default function IDESyncPanel({ onClose }: IDESyncPanelProps) {
   const [activeIDE, setActiveIDE] = useState<'vscode' | 'codespaces' | 'gitpod' | 'replit'>('vscode');
   const [latencyHistory, setLatencyHistory] = useState<number[]>([42, 45, 48, 41, 44, 46, 42, 43, 45, 41]);
   const [clientPrivateKey, setClientPrivateKey] = useState('ecdh_priv_7f3a8b2c9d1e4f6a8b5c4d3e2f1a0b9c');
@@ -40,21 +44,21 @@ export default function IDESyncPanel() {
     vscode: {
       title: "Visual Studio Code Extension",
       badge: "Marketplace: v1.4.2",
-      install: "ext install omnidebug-ai",
+      install: "ext install prism-ai",
       config: `{
-  "omnidebug.server": "https://omnidebug.example.com",
-  "omnidebug.e2eeEnabled": true,
-  "omnidebug.autoSync": true
+  "prism.server": "https://prism.example.com",
+  "prism.e2eeEnabled": true,
+  "prism.autoSync": true
 }`,
     },
     codespaces: {
       title: "GitHub Codespaces Workspace",
       badge: "Docker Image: v1.2.0",
-      install: "echo 'omnidebug-cli sync --daemon' >> .devcontainer/onCreate.sh",
+      install: "echo 'prism-cli sync --daemon' >> .devcontainer/onCreate.sh",
       config: `{
   "customizations": {
     "vscode": {
-      "extensions": ["omnidebug-ai.omnidebug-vscode-extension"]
+      "extensions": ["prism-ai.prism-vscode-extension"]
     }
   }
 }`,
@@ -62,17 +66,17 @@ export default function IDESyncPanel() {
     gitpod: {
       title: "Gitpod Workspace Integration",
       badge: "Tasks: Auto-Boot",
-      install: "curl -fsSL https://omnidebug.ai/install.sh | sh",
+      install: "curl -fsSL https://prism.ai/install.sh | sh",
       config: `tasks:
   - init: npm install
-    command: omnidebug-cli watch .`,
+    command: prism-cli watch .`,
     },
     replit: {
       title: "Replit Agent Daemon Integration",
       badge: "Plugin: Active",
-      install: "replit-agent install omnidebug-link",
+      install: "replit-agent install prism-link",
       config: `[deployment]
-run = "omnidebug-cli link --port 3000"`,
+run = "prism-cli link --port 3000"`,
     },
   };
 
@@ -84,9 +88,22 @@ run = "omnidebug-cli link --port 3000"`,
           <Terminal className="h-4 w-4 text-indigo-400" />
           <h2 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Cloud IDE & Security</h2>
         </div>
-        <div className="text-[10px] bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded text-indigo-300 font-mono flex items-center gap-1 font-semibold uppercase tracking-wider">
-          <Zap className="h-3 w-3 text-indigo-400" />
-          <span>Active Tunnel</span>
+        <div className="flex items-center gap-2">
+          <div className="text-[10px] bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded text-indigo-300 font-mono flex items-center gap-1 font-semibold uppercase tracking-wider">
+            <Zap className="h-3 w-3 text-indigo-400" />
+            <span>Active Tunnel</span>
+          </div>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-1 hover:bg-[#1f242f] hover:text-red-400 rounded text-slate-500 transition cursor-pointer"
+              title="Close Drawer"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          )}
         </div>
       </div>
 
@@ -242,7 +259,7 @@ run = "omnidebug-cli link --port 3000"`,
             </div>
 
             <div className="space-y-1.5">
-              <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Config Block (`.omnidebug`):</div>
+              <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Config Block (`.prism`):</div>
               <pre className="p-2.5 bg-[#0A0C10] border border-slate-850 rounded font-mono text-[10px] text-slate-400 overflow-x-auto whitespace-pre leading-relaxed select-all">
                 {ideInstructions[activeIDE].config}
               </pre>

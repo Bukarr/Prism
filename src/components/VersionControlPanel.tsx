@@ -8,6 +8,7 @@ interface VersionControlPanelProps {
   onCheckout: (hash: string) => void;
   onToggleDiff: (commit: VCCommit | null) => void;
   diffCommit: VCCommit | null;
+  onClose?: () => void;
 }
 
 export default function VersionControlPanel({
@@ -16,6 +17,7 @@ export default function VersionControlPanel({
   onCheckout,
   onToggleDiff,
   diffCommit,
+  onClose,
 }: VersionControlPanelProps) {
   return (
     <div className="flex flex-col h-full bg-[#0F1117] text-slate-300 border-l border-slate-800 font-sans" id="version-control-panel">
@@ -25,8 +27,21 @@ export default function VersionControlPanel({
           <GitBranch className="h-4 w-4 text-indigo-400" />
           <h2 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Version Control</h2>
         </div>
-        <div className="text-[10px] bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded text-indigo-300 font-mono font-semibold uppercase tracking-wider">
-          Local Engine
+        <div className="flex items-center gap-2">
+          <div className="text-[10px] bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded text-indigo-300 font-mono font-semibold uppercase tracking-wider">
+            Local Engine
+          </div>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-1 hover:bg-[#1f242f] hover:text-red-400 rounded text-slate-500 transition cursor-pointer"
+              title="Close Drawer"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          )}
         </div>
       </div>
 

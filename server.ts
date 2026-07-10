@@ -31,18 +31,26 @@ try {
   console.error("Failed to initialize GoogleGenAI:", e);
 }
 
+let globalQuotaExceeded = false;
+
 // Helper function for calling Gemini with retry and fallback models to handle 503/429
 async function generateContentWithFallback(params: {
   contents: any;
   config?: any;
 }) {
+  if (globalQuotaExceeded) {
+    console.warn("[Gemini API] Bypassing real API call because a quota-exceeded state was previously detected.");
+    throw new Error("QUOTA_EXCEEDED");
+  }
+
   if (!ai) {
     throw new Error("GoogleGenAI client is not initialized.");
   }
 
   const models = [
     "gemini-3.5-flash",
-    "gemini-2.5-flash"
+    "gemini-2.5-flash",
+    "gemini-3.1-flash-lite"
   ];
 
   let lastError: any = null;
@@ -59,11 +67,44 @@ async function generateContentWithFallback(params: {
         return result;
       } catch (err: any) {
         lastError = err;
-        console.error(`[Gemini API Error] model=${modelName}, attempt=${attempt}:`, err);
+        console.warn(`[Gemini API Warning] model=${modelName}, attempt=${attempt}:`, err.message || err);
 
-        // If it's a 400 error (Invalid Request, unsupported param, etc.), don't retry because it will keep failing
+        // Check for Quota Exceeded (429) or Invalid API key / Auth issues (401, 403)
+        const isQuota = 
+          err.status === 429 || 
+          err.statusCode === 429 || 
+          (err.message && (
+            err.message.includes("429") || 
+            err.message.includes("quota") || 
+            err.message.includes("Quota") || 
+            err.message.includes("RESOURCE_EXHAUSTED") ||
+            err.message.includes("limit")
+          ));
+
+        const isAuthError = 
+          err.status === 401 || 
+          err.status === 403 || 
+          err.statusCode === 401 || 
+          err.statusCode === 403 || 
+          (err.message && (
+            err.message.includes("API key") || 
+            err.message.includes("unauthorized") || 
+            err.message.includes("Unauthorized") || 
+            err.message.includes("invalid key")
+          ));
+
+        if (isQuota) {
+          console.warn(`[Gemini API] Model ${modelName} has exceeded quota. Moving to next fallback model if available.`);
+          break; // Break inner loop to try next model!
+        }
+
+        if (isAuthError) {
+          throw new Error("AUTH_ERROR");
+        }
+
+        // If it's a 400 error (Invalid Request, etc.), don't retry, move to next model if available
         if (err.status === 400 || err.statusCode === 400 || (err.message && err.message.includes("400"))) {
-          throw err;
+          break;
         }
 
         // Exponential backoff with jitter
@@ -73,6 +114,24 @@ async function generateContentWithFallback(params: {
         }
       }
     }
+  }
+
+  // Check if our last error was a quota error to set the global state.
+  const isLastQuota = lastError && (
+    lastError.status === 429 || 
+    lastError.statusCode === 429 || 
+    (lastError.message && (
+      lastError.message.includes("429") || 
+      lastError.message.includes("quota") || 
+      lastError.message.includes("Quota") || 
+      lastError.message.includes("RESOURCE_EXHAUSTED") ||
+      lastError.message.includes("limit")
+    ))
+  );
+
+  if (isLastQuota) {
+    globalQuotaExceeded = true;
+    throw new Error("QUOTA_EXCEEDED");
   }
 
   throw lastError || new Error("All model fallback attempts exhausted.");
@@ -118,12 +177,37 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok", time: new Date().toISOString() });
 });
 
+// GET AI Connection Status
+app.get("/api/gemini/status", (req, res) => {
+  res.json({
+    aiActive: !!ai,
+    globalQuotaExceeded,
+  });
+});
+
+// POST Reset AI Connection Status
+app.post("/api/gemini/status/reset", (req, res) => {
+  globalQuotaExceeded = false;
+  res.json({
+    aiActive: !!ai,
+    globalQuotaExceeded,
+    message: "AI Connection state reset successfully."
+  });
+});
+
 // AI Debugging Endpoint
 app.post("/api/gemini/debug", async (req, res) => {
-  const { code, filename, fileId } = req.body;
+  const { code, filename, fileId, failedTestLogs } = req.body;
 
   if (!code) {
     return res.status(400).json({ error: "Code content is required" });
+  }
+
+  let testLogsContext = "";
+  if (failedTestLogs && Array.isArray(failedTestLogs) && failedTestLogs.length > 0) {
+    console.log(`[AI Debugger] Injected ${failedTestLogs.length} failed unit test logs into prompt context.`);
+    testLogsContext = `\n\nCRITICAL CONTEXT: Here are the last ${failedTestLogs.length} failed unit test run logs. These failures happened on the current code. Prioritize addressing these test failures first in your analysis and bugs report, ensuring you explain how the suggested fixes resolve these specific test failures:\n` +
+      failedTestLogs.map((log: string, idx: number) => `--- FAILED TEST LOG #${idx + 1} ---\n${log}`).join("\n\n");
   }
 
   const prompt = `Analyze the following file "${filename || "code"}" for bugs, logical flaws, security concerns, or performance issues.
@@ -134,6 +218,7 @@ For each bug:
 3. Write a clear description of the error.
 4. Give an extensive, step-by-step helpful explanation of how the user can solve it themselves.
 5. Provide a suggested corrected code snippet to fix that specific bug.
+${testLogsContext}
 
 Code:
 \`\`\`
@@ -180,7 +265,7 @@ ${code}
       const parsed = JSON.parse(response.text || "{}");
       return res.json({ fileId, ...parsed });
     } catch (err: any) {
-      console.error("Gemini Debug Error:", err);
+      console.warn("Gemini Debug (Handled Fallback):", err.message || err);
       // Fallback below
     }
   }
@@ -285,7 +370,9 @@ ${code}
   res.json({
     fileId,
     summary,
-    bugs
+    bugs,
+    isFallback: true,
+    fallbackReason: globalQuotaExceeded ? "quota_exceeded" : "api_error"
   });
 });
 
@@ -349,8 +436,8 @@ ${code}
 
       const parsed = JSON.parse(response.text || "{}");
       return res.json({ fileId, ...parsed });
-    } catch (err) {
-      console.error("Gemini Explain Error:", err);
+    } catch (err: any) {
+      console.warn("Gemini Explain (Handled Fallback):", err.message || err);
     }
   }
 
@@ -401,7 +488,9 @@ ${code}
     fileId,
     summary,
     detailedAnalysis,
-    logicFlowDiagram
+    logicFlowDiagram,
+    isFallback: true,
+    fallbackReason: globalQuotaExceeded ? "quota_exceeded" : "api_error"
   });
 });
 
@@ -461,8 +550,8 @@ ${code}
         steps: parsed.steps,
         currentStepIndex: 0
       });
-    } catch (err) {
-      console.error("Gemini Tutor Error:", err);
+    } catch (err: any) {
+      console.warn("Gemini Tutor (Handled Fallback):", err.message || err);
     }
   }
 
@@ -486,7 +575,9 @@ ${code}
         completed: false
       }
     ],
-    currentStepIndex: 0
+    currentStepIndex: 0,
+    isFallback: true,
+    fallbackReason: globalQuotaExceeded ? "quota_exceeded" : "api_error"
   });
 });
 
@@ -529,8 +620,8 @@ Explain if their answer is correct or matches the desired debugging process, the
 
       const parsed = JSON.parse(response.text || "{}");
       return res.json(parsed);
-    } catch (err) {
-      console.error("Verify Error:", err);
+    } catch (err: any) {
+      console.warn("Verify Error (Handled Fallback):", err.message || err);
     }
   }
 
@@ -540,7 +631,9 @@ Explain if their answer is correct or matches the desired debugging process, the
     passed: isCorrect,
     feedback: isCorrect
       ? "Spot on! That demonstrates a solid understanding of how code logic flow handles exceptions securely."
-      : "A good attempt, but try to elaborate slightly more on how we should resolve the underlying exception."
+      : "A good attempt, but try to elaborate slightly more on how we should resolve the underlying exception.",
+    isFallback: true,
+    fallbackReason: globalQuotaExceeded ? "quota_exceeded" : "api_error"
   });
 });
 
@@ -594,8 +687,8 @@ CRITICAL NARRATION RULES:
 
       const explanationText = response.text || "I have analyzed the execution trace slice.";
       return res.json({ explanation: explanationText });
-    } catch (err) {
-      console.error("Grounded Explain Error:", err);
+    } catch (err: any) {
+      console.warn("Grounded Explain Error (Handled Fallback):", err.message || err);
     }
   }
 
@@ -617,7 +710,11 @@ CRITICAL NARRATION RULES:
 
   fallbackText += `\n\n*This explanation is fully grounded in the actual step-indexed event log.*`;
 
-  res.json({ explanation: fallbackText });
+  res.json({ 
+    explanation: fallbackText,
+    isFallback: true,
+    fallbackReason: globalQuotaExceeded ? "quota_exceeded" : "api_error"
+  });
 });
 
 // API endpoint for AI chat in the collaboration room
@@ -659,8 +756,8 @@ Answer the user's questions or comments directly in a friendly, professional ton
       
       room.chatHistory.push(aiMessage);
       return res.json({ message: aiMessage });
-    } catch (err) {
-      console.error("AI Mentor Chat Error:", err);
+    } catch (err: any) {
+      console.warn("AI Mentor Chat Error (Handled Fallback):", err.message || err);
     }
   }
 
@@ -674,7 +771,11 @@ Answer the user's questions or comments directly in a friendly, professional ton
     isAI: true
   };
   room.chatHistory.push(aiMessage);
-  res.json({ message: aiMessage });
+  res.json({ 
+    message: aiMessage,
+    isFallback: true,
+    fallbackReason: globalQuotaExceeded ? "quota_exceeded" : "api_error"
+  });
 });
 
 // --- COLLABORATION ROOM APIS ---
@@ -903,7 +1004,7 @@ app.post("/api/rooms/:id/console", (req, res) => {
         room.consoleLogs.push({
           id: "log-sim-" + Date.now() + "-2",
           type: "success",
-          text: "OMNIDEBUG Server listening on port 3000.\nHandshake established. Connection latency is stable at 42ms.",
+          text: "PRISM Server listening on port 3000.\nHandshake established. Connection latency is stable at 42ms.",
           timestamp: new Date().toLocaleTimeString()
         });
       } else if (trimmedText === "git status") {

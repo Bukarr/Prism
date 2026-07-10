@@ -5,7 +5,7 @@ export const initialCodebase: CodeFile[] = [
     id: 'file-1',
     name: 'index.js',
     path: 'src/index.js',
-    content: `// OmniDebug AI Sample Codebase
+    content: `// Prism AI Sample Codebase
 // Try selecting this file and clicking 'Analyze Bugs' or 'Explain Logic'
 
 function processUserData(jsonData) {

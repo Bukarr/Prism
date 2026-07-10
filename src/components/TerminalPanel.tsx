@@ -32,6 +32,7 @@ interface TerminalPanelProps {
   bugs?: any[];
   onApplyFix?: (bugId: string, fixCode: string) => void;
   onTriggerAIMentorChat?: (text: string) => void;
+  onRecordFailedTestLog?: (log: string) => void;
 }
 
 interface TerminalLine {
@@ -60,6 +61,7 @@ export default function TerminalPanel({
   bugs = [],
   onApplyFix,
   onTriggerAIMentorChat,
+  onRecordFailedTestLog,
 }: TerminalPanelProps) {
   // Terminal Panel settings
   const [isOpen, setIsOpen] = useState(true);
@@ -79,7 +81,7 @@ export default function TerminalPanel({
   const [localLogs, setLocalLogs] = useState<TerminalLine[]>([
     {
       id: 'init-1',
-      text: 'OmniDebug Dynamic Shell Interface (v2.4.1-stable)',
+      text: 'Prism Dynamic Shell Interface (v2.4.1-stable)',
       type: 'info',
       timestamp: new Date().toLocaleTimeString(),
       tabId: 'tab-bash'
@@ -345,7 +347,7 @@ export default function TerminalPanel({
 
     if (cmdLower === 'git log') {
       addLine('commit a9df82c9e771e8bf (HEAD -> master, origin/master)', 'info');
-      addLine('Author: AI Mentor <mentor@omnidebug.ai>', 'output');
+      addLine('Author: AI Mentor <mentor@prism.ai>', 'output');
       addLine('Date:   Thu Jul 9 00:46:12 2026 -0700', 'output');
       addLine('    feat: integrate secure collaboration socket channels and real-time cursor syncs', 'success');
       addLine('', 'output');
@@ -422,7 +424,7 @@ export default function TerminalPanel({
   };
 
   const triggerTestSimulation = () => {
-    addLine('🧪 Initiating OmniDebug Test Suite Runner (Jest-watcher CLI)...', 'info');
+    addLine('🧪 Initiating Prism Test Suite Runner (Jest-watcher CLI)...', 'info');
     addLine('> jest --watchAll=false src/', 'output');
     
     // Simulate thinking delay
@@ -441,6 +443,20 @@ export default function TerminalPanel({
         addLine('Snapshots:   0 total', 'output');
         addLine('Time:        4.12s, estimated 5s', 'output');
         addLine('Ran all test suites. Please fix the highlighted debugger issues and re-run!', 'error');
+
+        if (onRecordFailedTestLog) {
+          const formattedLog = [
+            'FAIL  src/App.test.tsx (3.82s)',
+            '  ✖ Component builds successfully but encountered active AI Debugger issues:',
+            ...bugs.map(bug => `    - [LINE ${bug.line}] ${bug.title} (Severity: ${bug.severity.toUpperCase()} | Desc: ${bug.description})`),
+            '',
+            'Test Suites: 1 failed, 1 total',
+            `Tests:       ${bugs.length} failed, 2 passed, ${bugs.length + 2} total`,
+            'Time:        4.12s',
+            'Ran all test suites. Please fix the highlighted debugger issues and re-run!'
+          ].join('\n');
+          onRecordFailedTestLog(formattedLog);
+        }
       } else {
         // Fully green passing test report!
         addLine('PASS  src/App.test.tsx (2.12s)', 'success');
@@ -754,7 +770,7 @@ export default function TerminalPanel({
         className={`h-9 border-t flex items-center px-4 gap-2 shrink-0 ${themeStyles.inputBg} ${themeStyles.border}`}
       >
         <span className={`font-mono text-xs select-none ${themeStyles.promptColor}`}>
-          {username ? `${username.toLowerCase()}@omnidebug` : 'dev@omnidebug'}:/src$
+          {username ? `${username.toLowerCase()}@prism` : 'dev@prism'}:/src$
         </span>
         <input
           ref={inputRef}

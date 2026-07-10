@@ -29,6 +29,7 @@ interface CollaborationPanelProps {
   userId: string;
   onToggleScreenShare: (isSharing: boolean) => void;
   onSendConsoleCommand: (text: string, type: 'info' | 'error' | 'success' | 'input') => void;
+  onClose?: () => void;
 }
 
 export default function CollaborationPanel({
@@ -42,6 +43,7 @@ export default function CollaborationPanel({
   userId,
   onToggleScreenShare,
   onSendConsoleCommand,
+  onClose,
 }: CollaborationPanelProps) {
   const [targetRoomId, setTargetRoomId] = useState('');
   const [newMessageText, setNewMessageText] = useState('');
@@ -130,9 +132,22 @@ export default function CollaborationPanel({
           <Users className="h-4 w-4 text-indigo-400" />
           <h2 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Pair Programming</h2>
         </div>
-        <div className="flex items-center gap-1 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded text-[10px] text-indigo-300 font-bold">
-          <ShieldCheck className="h-3 w-3 text-indigo-400" />
-          <span>E2EE ACTIVE</span>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded text-[10px] text-indigo-300 font-bold">
+            <ShieldCheck className="h-3 w-3 text-indigo-400" />
+            <span>E2EE ACTIVE</span>
+          </div>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-1 hover:bg-[#1f242f] hover:text-red-400 rounded text-slate-500 transition cursor-pointer"
+              title="Close Drawer"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          )}
         </div>
       </div>
 

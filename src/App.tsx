@@ -11,6 +11,7 @@ import {
   ArrowRight,
   ShieldAlert,
   Activity,
+  Keyboard,
 } from 'lucide-react';
 import { CodeFile, BugReport, AIDebugResult, AIExplainResult, AITutorResult, CollaborationRoom, VCCommit, ExecutionTrace } from './types';
 import { initialCodebase } from './data/mockCodebase';
@@ -38,6 +39,7 @@ export default function App() {
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [isTraceDrawerExpanded, setIsTraceDrawerExpanded] = useState(false);
+  const [showShortcutsModal, setShowShortcutsModal] = useState(false);
 
   // Trace Engine States
   const [currentTrace, setCurrentTrace] = useState<ExecutionTrace | null>(null);
@@ -56,6 +58,20 @@ export default function App() {
   const [debugResult, setDebugResult] = useState<AIDebugResult | null>(null);
   const [explainResult, setExplainResult] = useState<AIExplainResult | null>(null);
   const [tutorResult, setTutorResult] = useState<AITutorResult | null>(null);
+
+  // AI Connection / Status
+  const [aiQuotaExceeded, setAiQuotaExceeded] = useState(false);
+  const [aiFallbackActive, setAiFallbackActive] = useState(false);
+
+  // Failed Test Logs Context
+  const [failedTestLogs, setFailedTestLogs] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('prism_failed_test_logs');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Tutor validation state
   const [isVerifyingAnswer, setIsVerifyingAnswer] = useState(false);
@@ -91,6 +107,20 @@ export default function App() {
 
     setCommits([firstCommit]);
     setActiveCommitHash('cf7e8a9');
+
+    // Check AI status
+    const checkAiStatus = async () => {
+      try {
+        const res = await fetch('/api/gemini/status');
+        if (res.ok) {
+          const data = await res.json();
+          setAiQuotaExceeded(data.globalQuotaExceeded);
+        }
+      } catch (err) {
+        console.error('Failed to check AI status:', err);
+      }
+    };
+    checkAiStatus();
   }, []);
 
   // Sync / Polling interval for Collaboration Rooms
@@ -237,6 +267,42 @@ export default function App() {
     setDiffCommit(commit);
   };
 
+  const handleResetAiStatus = async () => {
+    try {
+      const res = await fetch('/api/gemini/status/reset', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        setAiQuotaExceeded(data.globalQuotaExceeded);
+        setAiFallbackActive(false);
+        handleSendConsoleCommand('AI connection state reset successfully. Retrying live Gemini API calls.', 'success');
+      }
+    } catch (err) {
+      console.error('Failed to reset AI status:', err);
+    }
+  };
+
+  const handleRecordFailedTestLog = (log: string) => {
+    setFailedTestLogs(prev => {
+      if (prev[0] === log) return prev;
+      const updated = [log, ...prev].slice(0, 3);
+      try {
+        localStorage.setItem('prism_failed_test_logs', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to save failed test logs:', e);
+      }
+      return updated;
+    });
+  };
+
+  const handleClearFailedTestLogs = () => {
+    setFailedTestLogs([]);
+    try {
+      localStorage.removeItem('prism_failed_test_logs');
+    } catch (e) {
+      console.error('Failed to clear failed test logs:', e);
+    }
+  };
+
   // API Call: Trigger Gemini code debugging analysis
   const handleAnalyzeDebug = async () => {
     if (!activeFile) return;
@@ -251,12 +317,22 @@ export default function App() {
           code: activeFile.content,
           filename: activeFile.name,
           fileId: activeFile.id,
+          failedTestLogs: failedTestLogs,
         }),
       });
 
       if (res.ok) {
-        const data: AIDebugResult = await res.json();
+        const data: AIDebugResult & { isFallback?: boolean; fallbackReason?: string } = await res.json();
         setDebugResult(data);
+        if (data.isFallback) {
+          setAiFallbackActive(true);
+          if (data.fallbackReason === 'quota_exceeded') {
+            setAiQuotaExceeded(true);
+          }
+        } else {
+          setAiFallbackActive(false);
+          setAiQuotaExceeded(false);
+        }
       }
     } catch (err) {
       console.error('Debugger API failed:', err);
@@ -283,8 +359,17 @@ export default function App() {
       });
 
       if (res.ok) {
-        const data: AIExplainResult = await res.json();
+        const data: AIExplainResult & { isFallback?: boolean; fallbackReason?: string } = await res.json();
         setExplainResult(data);
+        if (data.isFallback) {
+          setAiFallbackActive(true);
+          if (data.fallbackReason === 'quota_exceeded') {
+            setAiQuotaExceeded(true);
+          }
+        } else {
+          setAiFallbackActive(false);
+          setAiQuotaExceeded(false);
+        }
       }
     } catch (err) {
       console.error('Logic Explainer API failed:', err);
@@ -312,8 +397,17 @@ export default function App() {
       });
 
       if (res.ok) {
-        const data: AITutorResult = await res.json();
+        const data: AITutorResult & { isFallback?: boolean; fallbackReason?: string } = await res.json();
         setTutorResult(data);
+        if (data.isFallback) {
+          setAiFallbackActive(true);
+          if (data.fallbackReason === 'quota_exceeded') {
+            setAiQuotaExceeded(true);
+          }
+        } else {
+          setAiFallbackActive(false);
+          setAiQuotaExceeded(false);
+        }
       }
     } catch (err) {
       console.error('AI Tutor session init failed:', err);
@@ -618,15 +712,67 @@ export default function App() {
     }
   };
 
+  // Global Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape: Close shortcuts modal
+      if (e.key === 'Escape') {
+        setShowShortcutsModal(false);
+      }
+
+      // Ctrl + Enter: Run trace probe on the active file
+      if (e.ctrlKey && e.key === 'Enter') {
+        e.preventDefault();
+        if (activeFile) {
+          setIsTraceDrawerExpanded(true);
+          const traceA = generateExecutionTrace(activeFile);
+          setCurrentTrace(traceA);
+          setActiveTraceStep(1);
+          handleSendConsoleCommand(`prism run ${activeFile.name}`, 'input');
+          setTimeout(() => {
+            handleSendConsoleCommand(`Successfully initiated trace analysis for ${activeFile.name}. Built with ${traceA.events.length} steps.`, 'success');
+          }, 300);
+        }
+      }
+
+      // Ctrl + Shift + T: Toggle trace drawer expansion
+      if (e.ctrlKey && e.shiftKey && (e.key === 'T' || e.key === 't')) {
+        e.preventDefault();
+        if (!currentTrace && activeFile) {
+          const traceA = generateExecutionTrace(activeFile);
+          setCurrentTrace(traceA);
+          setActiveTraceStep(1);
+        }
+        setIsTraceDrawerExpanded((prev) => !prev);
+      }
+
+      // Ctrl + Shift + A: Toggle AI panel
+      if (e.ctrlKey && e.shiftKey && (e.key === 'A' || e.key === 'a')) {
+        e.preventDefault();
+        if (rightPanel === 'ai' && isRightPanelOpen) {
+          setIsRightPanelOpen(false);
+        } else {
+          setRightPanel('ai');
+          setIsRightPanelOpen(true);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [activeFile, currentTrace, rightPanel, isRightPanelOpen]);
+
   return (
     <div className="flex flex-col h-screen bg-[#0A0C10] text-slate-300 overflow-hidden font-sans" id="app-root">
       {/* Header: Symmetrical Layout */}
       <header className="h-14 border-b border-slate-800 bg-[#0F1117] flex items-center justify-between px-6 shrink-0 z-10">
         {/* Left column (1/3 width) */}
         <div className="flex items-center gap-4 w-1/3">
-          <div className="w-8 h-8 bg-indigo-600 rounded flex items-center justify-center font-bold text-white text-sm">Λ</div>
+          <div className="w-8 h-8 bg-indigo-600 rounded flex items-center justify-center font-bold text-white text-sm">P</div>
           <div className="flex flex-col">
-            <span className="text-xs font-bold text-white tracking-wider">OMNIDEBUG AI</span>
+            <span className="text-xs font-bold text-white tracking-wider">PRISM AI</span>
             <span className="text-[9px] text-slate-500 uppercase tracking-widest mt-0.5">Unified Debugging Interface</span>
           </div>
         </div>
@@ -655,6 +801,13 @@ export default function App() {
             <div className="w-1.5 h-1.5 rounded-full bg-indigo-400"></div>
           </div>
           <div className="h-6 w-[1px] bg-slate-800"></div>
+          <button
+            onClick={() => setShowShortcutsModal(true)}
+            className="p-2 hover:bg-slate-800 rounded cursor-pointer text-slate-400 hover:text-indigo-400 transition flex items-center gap-1"
+            title="Keyboard Shortcuts Menu"
+          >
+            <Keyboard className="w-4 h-4" />
+          </button>
           <button className="p-2 hover:bg-slate-800 rounded cursor-pointer text-slate-400 hover:text-indigo-400 transition" title="Security Details">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
           </button>
@@ -662,9 +815,9 @@ export default function App() {
       </header>
 
       {/* Main Workspace */}
-      <div className="flex-1 flex overflow-hidden bg-[#11141a]">
+      <div className="flex-1 flex overflow-hidden bg-[#11141a] relative">
         {/* Workspace Action Rail (Far Left Narrow Utility Rail) */}
-        <div className="w-16 bg-[#161a22] border-r border-[#222733] flex flex-col items-center py-4 justify-between shrink-0 select-none">
+        <div className="w-16 bg-[#161a22] border-r border-[#222733] flex flex-col items-center py-4 justify-between shrink-0 select-none z-40">
           <div className="flex flex-col gap-4">
             {/* File Explorer Toggle */}
             <button
@@ -792,21 +945,32 @@ export default function App() {
           </div>
         </div>
 
-        {/* Column 1: Files Tree Explorer */}
-        {isLeftPanelOpen && (
-          <div className="w-80 h-full flex-shrink-0 border-r border-[#222733] animate-fade-in">
-            <CodebaseExplorer
-              files={files}
-              activeFileId={activeFileId}
-              onSelectFile={handleSelectFile}
-              onCodebaseUpdated={handleCodebaseUpdated}
-              onAddFile={handleAddFile}
-              onDeleteFile={handleDeleteFile}
-            />
-          </div>
-        )}
+        {/* Drawer 1: Files Tree Explorer (Absolute Drawer Overlay) */}
+        <div 
+          className={`absolute top-0 bottom-0 left-16 w-80 bg-[#161a22] border-r border-[#222733] z-30 transition-all duration-300 ease-in-out shadow-[10px_0_30px_rgba(0,0,0,0.55)] flex flex-col ${
+            isLeftPanelOpen 
+              ? 'translate-x-0 opacity-100 pointer-events-auto' 
+              : '-translate-x-full opacity-0 pointer-events-none'
+          }`}
+        >
+          <CodebaseExplorer
+            files={files}
+            activeFileId={activeFileId}
+            onSelectFile={(id) => {
+              handleSelectFile(id);
+              // Close left drawer overlay automatically when selecting a file on small screens
+              if (window.innerWidth < 1024) {
+                setIsLeftPanelOpen(false);
+              }
+            }}
+            onCodebaseUpdated={handleCodebaseUpdated}
+            onAddFile={handleAddFile}
+            onDeleteFile={handleDeleteFile}
+            onClose={() => setIsLeftPanelOpen(false)}
+          />
+        </div>
 
-        {/* Column 2: Code Editor (The Canvas) */}
+        {/* Core Canvas: Code Editor & Auxiliary Panels */}
         <div className="flex-1 h-full flex flex-col min-h-0 bg-[#12151c]">
           <div className="flex-1 min-h-0 flex flex-col relative">
             <EditorPanel
@@ -863,66 +1027,138 @@ export default function App() {
             bugs={debugResult ? debugResult.bugs : []}
             onApplyFix={handleApplyFix}
             onTriggerAIMentorChat={handleTriggerAIMentorChat}
+            onRecordFailedTestLog={handleRecordFailedTestLog}
           />
         </div>
 
-        {/* Column 3: Custom Right Sidebar Action Tab */}
-        {isRightPanelOpen && (
-          <div className="w-[420px] h-full flex-shrink-0 border-l border-[#222733] bg-[#161a22] flex flex-col overflow-hidden animate-fade-in">
-            {rightPanel === 'ai' && (
-              <AIDebuggerTabs
-                activeFile={activeFile}
-                debugResult={debugResult}
-                explainResult={explainResult}
-                tutorResult={tutorResult}
-                activeTab={aiActiveTab}
-                setActiveTab={setAiActiveTab}
-                onApplyFix={handleApplyFix}
-                onVerifyTutorAnswer={handleVerifyTutorAnswer}
-                isVerifyingAnswer={isVerifyingAnswer}
-                tutorVerificationFeedback={tutorVerificationFeedback}
-                onStartTutor={handleStartTutor}
-                groundedAIResponse={groundedAIResponse}
-                onSelectTraceStep={(step) => { 
-                  setActiveTraceStep(step); 
-                  setIsTraceDrawerExpanded(true); 
-                }}
-                onClearGroundedResponse={() => setGroundedAIResponse(null)}
-                isGroundedRunning={isExplainingGrounded}
-              />
-            )}
+        {/* Drawer 2: Custom Right Sidebar Action Tab (Absolute Drawer Overlay) */}
+        <div 
+          className={`absolute top-0 bottom-0 right-0 w-[420px] bg-[#161a22] border-l border-[#222733] z-30 transition-all duration-300 ease-in-out shadow-[-10px_0_30px_rgba(0,0,0,0.55)] flex flex-col overflow-hidden ${
+            isRightPanelOpen 
+              ? 'translate-x-0 opacity-100 pointer-events-auto' 
+              : 'translate-x-full opacity-0 pointer-events-none'
+          }`}
+        >
+          {rightPanel === 'ai' && (
+            <AIDebuggerTabs
+              activeFile={activeFile}
+              debugResult={debugResult}
+              explainResult={explainResult}
+              tutorResult={tutorResult}
+              activeTab={aiActiveTab}
+              setActiveTab={setAiActiveTab}
+              onApplyFix={handleApplyFix}
+              onVerifyTutorAnswer={handleVerifyTutorAnswer}
+              isVerifyingAnswer={isVerifyingAnswer}
+              tutorVerificationFeedback={tutorVerificationFeedback}
+              onStartTutor={handleStartTutor}
+              groundedAIResponse={groundedAIResponse}
+              onSelectTraceStep={(step) => { 
+                setActiveTraceStep(step); 
+                setIsTraceDrawerExpanded(true); 
+              }}
+              onClearGroundedResponse={() => setGroundedAIResponse(null)}
+              isGroundedRunning={isExplainingGrounded}
+              aiQuotaExceeded={aiQuotaExceeded}
+              aiFallbackActive={aiFallbackActive}
+              onResetAiStatus={handleResetAiStatus}
+              failedTestLogs={failedTestLogs}
+              onClearFailedTestLogs={handleClearFailedTestLogs}
+              onClose={() => setIsRightPanelOpen(false)}
+            />
+          )}
 
-            {rightPanel === 'collab' && (
-              <CollaborationPanel
-                room={room}
-                username={username}
-                setUsername={setUsername}
-                onStartRoom={handleStartRoom}
-                onJoinRoom={handleJoinRoom}
-                onSendMessage={handleSendMessage}
-                onTriggerAIMentorChat={handleTriggerAIMentorChat}
-                userId={userId}
-                onToggleScreenShare={handleToggleScreenShare}
-                onSendConsoleCommand={handleSendConsoleCommand}
-              />
-            )}
+          {rightPanel === 'collab' && (
+            <CollaborationPanel
+              room={room}
+              username={username}
+              setUsername={setUsername}
+              onStartRoom={handleStartRoom}
+              onJoinRoom={handleJoinRoom}
+              onSendMessage={handleSendMessage}
+              onTriggerAIMentorChat={handleTriggerAIMentorChat}
+              userId={userId}
+              onToggleScreenShare={handleToggleScreenShare}
+              onSendConsoleCommand={handleSendConsoleCommand}
+              onClose={() => setIsRightPanelOpen(false)}
+            />
+          )}
 
-            {rightPanel === 'vc' && (
-              <VersionControlPanel
-                commits={commits}
-                activeCommitHash={activeCommitHash}
-                onCheckout={handleCheckoutCommit}
-                onToggleDiff={handleToggleDiff}
-                diffCommit={diffCommit}
-              />
-            )}
+          {rightPanel === 'vc' && (
+            <VersionControlPanel
+              commits={commits}
+              activeCommitHash={activeCommitHash}
+              onCheckout={handleCheckoutCommit}
+              onToggleDiff={handleToggleDiff}
+              diffCommit={diffCommit}
+              onClose={() => setIsRightPanelOpen(false)}
+            />
+          )}
 
-            {rightPanel === 'sync' && (
-              <IDESyncPanel />
-            )}
-          </div>
-        )}
+          {rightPanel === 'sync' && (
+            <IDESyncPanel onClose={() => setIsRightPanelOpen(false)} />
+          )}
+        </div>
       </div>
+
+      {/* Keyboard Shortcuts Help Modal */}
+      {showShortcutsModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-[#11141a] border border-slate-800 rounded-xl p-6 max-w-md w-full shadow-2xl space-y-5 animate-fade-in text-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Keyboard className="h-5 w-5 text-indigo-400" />
+                <h3 className="text-sm font-bold uppercase tracking-wider">Prism Key Bindings</h3>
+              </div>
+              <button 
+                onClick={() => setShowShortcutsModal(false)}
+                className="text-slate-500 hover:text-white text-xs font-bold uppercase cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Boost your productivity with the following unified core navigation shortcuts designed for power users.
+              </p>
+
+              <div className="space-y-3.5">
+                {/* Shortcut 1 */}
+                <div className="flex items-start justify-between gap-4 p-2.5 bg-slate-900/50 border border-slate-850 rounded-lg">
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-bold text-slate-200">Run Probe / Active Trace</div>
+                    <div className="text-[10px] text-slate-500">Executes tracer engine simulator on current file</div>
+                  </div>
+                  <kbd className="px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono font-extrabold text-indigo-400 shrink-0">Ctrl + Enter</kbd>
+                </div>
+
+                {/* Shortcut 2 */}
+                <div className="flex items-start justify-between gap-4 p-2.5 bg-slate-900/50 border border-slate-850 rounded-lg">
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-bold text-slate-200">Toggle Trace Drawer</div>
+                    <div className="text-[10px] text-slate-500">Expands/minimizes bottom scrubber drawer</div>
+                  </div>
+                  <kbd className="px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono font-extrabold text-indigo-400 shrink-0">Ctrl + Shift + T</kbd>
+                </div>
+
+                {/* Shortcut 3 */}
+                <div className="flex items-start justify-between gap-4 p-2.5 bg-slate-900/50 border border-slate-850 rounded-lg">
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-bold text-slate-200">Toggle AI Assistant Panel</div>
+                    <div className="text-[10px] text-slate-500">Shows/hides the AI tab on the right side</div>
+                  </div>
+                  <kbd className="px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono font-extrabold text-indigo-400 shrink-0">Ctrl + Shift + A</kbd>
+                </div>
+              </div>
+            </div>
+
+            <div className="text-[10px] text-slate-500 text-center font-mono">
+              Press <kbd className="px-1 bg-slate-900 border border-slate-850 rounded text-slate-400">Esc</kbd> anytime to exit this menu.
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
