@@ -31,3 +31,9 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #3baea9;
 }
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-prism-bg);
+  color: #cbd5e1;
+}
